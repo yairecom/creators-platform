@@ -20,33 +20,38 @@ const GENDERS = ["אישה", "גבר"];
 const ROLES = ["יוצר תוכן", "שחקן", "צלם", "אולפן פודקאסט"];
 
 export default function Home() {
-  const [authed, setAuthed] = useState(false);
+  const [role, setRole] = useState(null); // "editor" | "viewer" | null
   const [pwInput, setPwInput] = useState("");
   const [pwError, setPwError] = useState("");
 
   const appPassword = process.env.NEXT_PUBLIC_APP_PASSWORD || "";
+  const viewerPassword = process.env.NEXT_PUBLIC_VIEWER_PASSWORD || "";
 
   useEffect(() => {
-    if (!appPassword) {
-      setAuthed(true);
+    if (!appPassword && !viewerPassword) {
+      setRole("editor");
       return;
     }
-    if (typeof window !== "undefined" && localStorage.getItem("cp_authed") === "1") {
-      setAuthed(true);
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("cp_role");
+      if (saved === "editor" || saved === "viewer") setRole(saved);
     }
-  }, [appPassword]);
+  }, [appPassword, viewerPassword]);
 
   function tryLogin(e) {
     e.preventDefault();
-    if (pwInput === appPassword) {
-      localStorage.setItem("cp_authed", "1");
-      setAuthed(true);
+    let r = null;
+    if (appPassword && pwInput === appPassword) r = "editor";
+    else if (viewerPassword && pwInput === viewerPassword) r = "viewer";
+    if (r) {
+      localStorage.setItem("cp_role", r);
+      setRole(r);
     } else {
       setPwError("סיסמה שגויה");
     }
   }
 
-  if (!authed) {
+  if (!role) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <form
@@ -55,7 +60,7 @@ export default function Home() {
         >
           <h1 className="text-2xl font-bold text-center">כניסת צוות</h1>
           <p className="text-sm text-slate-500 text-center">
-            הזיני את סיסמת הצוות כדי לגשת למאגר היוצרות
+            הזן/הזיני את סיסמת הגישה כדי לגשת למאגר היוצרות
           </p>
           <input
             type="password"
@@ -77,10 +82,11 @@ export default function Home() {
     );
   }
 
-  return <Dashboard />;
+  return <Dashboard role={role} />;
 }
 
-function Dashboard() {
+function Dashboard({ role }) {
+  const canEdit = role === "editor";
   const [creators, setCreators] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -115,6 +121,7 @@ function Dashboard() {
   }, []);
 
   function openAdd() {
+    if (!canEdit) return;
     setEditing(null);
     setForm(EMPTY);
     setError("");
@@ -122,6 +129,7 @@ function Dashboard() {
   }
 
   function openEdit(c) {
+    if (!canEdit) return;
     setEditing(c);
     setForm({
       name: c.name || "",
@@ -141,6 +149,7 @@ function Dashboard() {
 
   async function save(e) {
     e.preventDefault();
+    if (!canEdit) return;
     if (!form.name.trim()) {
       setError("חובה להזין שם יוצרת");
       return;
@@ -179,8 +188,14 @@ function Dashboard() {
   }
 
   async function remove(c) {
-    if (!confirm(`למחוק את "${c.name}"?`)) return;
-    await supabase.from("creators").delete().eq("id", c.id);
+    if (!canEdit || !c) return;
+    if (!confirm(`למחוק את "${c.name}"? פעולה זו אינה ניתנת לביטול.`)) return;
+    const res = await supabase.from("creators").delete().eq("id", c.id);
+    if (res.error) {
+      setError(res.error.message);
+      return;
+    }
+    setModalOpen(false);
     load();
   }
 
@@ -222,12 +237,30 @@ function Dashboard() {
               <p className="text-xs text-slate-400">{creators.length} יוצרות במאגר</p>
             </div>
           </div>
-          <button
-            onClick={openAdd}
-            className="bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl px-4 py-2.5 text-sm transition shadow-sm"
-          >
-            + הוספת יוצרת
-          </button>
+          <div className="flex items-center gap-3">
+            {!canEdit && (
+              <span className="text-xs font-medium bg-slate-100 text-slate-500 rounded-lg px-2.5 py-1">
+                מצב צפייה בלבד
+              </span>
+            )}
+            {canEdit && (
+              <button
+                onClick={openAdd}
+                className="bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl px-4 py-2.5 text-sm transition shadow-sm"
+              >
+                + הוספת יוצרת
+              </button>
+            )}
+            <button
+              onClick={() => {
+                localStorage.removeItem("cp_role");
+                location.reload();
+              }}
+              className="text-xs text-slate-400 hover:text-slate-600"
+            >
+              יציאה
+            </button>
+          </div>
         </div>
       </header>
 
@@ -336,7 +369,7 @@ function Dashboard() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {filtered.map((c) => (
-              <CreatorCard key={c.id} c={c} onEdit={() => openEdit(c)} onDelete={() => remove(c)} />
+              <CreatorCard key={c.id} c={c} canEdit={canEdit} onEdit={() => openEdit(c)} />
             ))}
           </div>
         )}
@@ -492,6 +525,16 @@ function Dashboard() {
                 ביטול
               </button>
             </div>
+
+            {editing && (
+              <button
+                type="button"
+                onClick={() => remove(editing)}
+                className="w-full text-sm font-medium text-red-500 hover:text-red-600 hover:bg-red-50 rounded-xl py-2.5 transition"
+              >
+                מחק יוצר
+              </button>
+            )}
           </form>
         </Modal>
       )}
@@ -551,7 +594,7 @@ function Modal({ children, onClose }) {
   );
 }
 
-function CreatorCard({ c, onEdit, onDelete }) {
+function CreatorCard({ c, onEdit, canEdit }) {
   const initial = (c.name || "?").trim().charAt(0);
   const waLink = c.phone
     ? `https://wa.me/${c.phone.replace(/[^0-9]/g, "").replace(/^0/, "972")}`
@@ -631,14 +674,13 @@ function CreatorCard({ c, onEdit, onDelete }) {
         </p>
       ) : null}
 
-      <div className="flex gap-2 mt-auto pt-2 border-t border-slate-100">
-        <button onClick={onEdit} className="flex-1 text-sm font-medium text-slate-600 hover:text-brand-700 py-1">
-          עריכה
-        </button>
-        <button onClick={onDelete} className="flex-1 text-sm font-medium text-slate-400 hover:text-red-500 py-1">
-          מחיקה
-        </button>
-      </div>
+      {canEdit && (
+        <div className="flex mt-auto pt-2 border-t border-slate-100">
+          <button onClick={onEdit} className="flex-1 text-sm font-medium text-slate-600 hover:text-brand-700 py-1">
+            עריכה
+          </button>
+        </div>
+      )}
     </div>
   );
 }
