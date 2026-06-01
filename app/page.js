@@ -5,12 +5,19 @@ import { supabase, isConfigured } from "../lib/supabase";
 
 const EMPTY = {
   name: "",
+  role: "",
+  gender: "",
   phone: "",
   age: "",
   portfolio: "",
   instagram: "",
   price: "",
+  notes: "",
+  rating: "",
 };
+
+const GENDERS = ["אישה", "גבר"];
+const ROLES = ["יוצר תוכן", "שחקן", "צלם", "אולפן פודקאסט"];
 
 export default function Home() {
   const [authed, setAuthed] = useState(false);
@@ -78,6 +85,10 @@ function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("created_desc");
+  const [genderFilter, setGenderFilter] = useState("");
+  const [roleFilter, setRoleFilter] = useState("");
+  const [ageMin, setAgeMin] = useState("");
+  const [ageMax, setAgeMax] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(EMPTY);
@@ -114,11 +125,15 @@ function Dashboard() {
     setEditing(c);
     setForm({
       name: c.name || "",
+      role: c.role || "",
+      gender: c.gender || "",
       phone: c.phone || "",
       age: c.age ?? "",
       portfolio: c.portfolio || "",
       instagram: c.instagram || "",
       price: c.price ?? "",
+      notes: c.notes || "",
+      rating: c.rating ?? "",
     });
     setError("");
     setModalOpen(true);
@@ -138,11 +153,15 @@ function Dashboard() {
     setError("");
     const payload = {
       name: form.name.trim(),
+      role: form.role || null,
+      gender: form.gender || null,
       phone: form.phone.trim() || null,
       age: form.age === "" ? null : Number(form.age),
       portfolio: form.portfolio.trim() || null,
       instagram: form.instagram.trim() || null,
       price: form.price === "" ? null : Number(form.price),
+      notes: form.notes.trim() || null,
+      rating: form.rating ? Number(form.rating) : null,
     };
     let res;
     if (editing) {
@@ -166,20 +185,27 @@ function Dashboard() {
   }
 
   const filtered = useMemo(() => {
+    const min = ageMin === "" ? null : Number(ageMin);
+    const max = ageMax === "" ? null : Number(ageMax);
     let list = creators.filter((c) => {
       const q = search.trim().toLowerCase();
-      if (!q) return true;
-      return (
+      const matchesSearch =
+        !q ||
         (c.name || "").toLowerCase().includes(q) ||
         (c.phone || "").toLowerCase().includes(q) ||
-        (c.instagram || "").toLowerCase().includes(q)
-      );
+        (c.instagram || "").toLowerCase().includes(q);
+      const matchesGender = !genderFilter || c.gender === genderFilter;
+      const matchesRole = !roleFilter || c.role === roleFilter;
+      const matchesAge =
+        (min === null || (c.age != null && c.age >= min)) &&
+        (max === null || (c.age != null && c.age <= max));
+      return matchesSearch && matchesGender && matchesRole && matchesAge;
     });
     if (sort === "price_asc") list = [...list].sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity));
     if (sort === "price_desc") list = [...list].sort((a, b) => (b.price ?? -Infinity) - (a.price ?? -Infinity));
     if (sort === "name") list = [...list].sort((a, b) => (a.name || "").localeCompare(b.name || "", "he"));
     return list;
-  }, [creators, search, sort]);
+  }, [creators, search, sort, genderFilter, roleFilter, ageMin, ageMax]);
 
   return (
     <div className="min-h-screen">
@@ -214,23 +240,88 @@ function Dashboard() {
           </div>
         )}
 
-        <div className="flex flex-col sm:flex-row gap-3 mb-5">
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="חיפוש לפי שם / טלפון / אינסטגרם…"
-            className="flex-1 border border-slate-300 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-brand-500 bg-white"
-          />
-          <select
-            value={sort}
-            onChange={(e) => setSort(e.target.value)}
-            className="border border-slate-300 rounded-xl px-4 py-2.5 bg-white outline-none focus:ring-2 focus:ring-brand-500"
-          >
-            <option value="created_desc">הכי חדשות</option>
-            <option value="name">לפי שם (א-ת)</option>
-            <option value="price_asc">מחיר: נמוך לגבוה</option>
-            <option value="price_desc">מחיר: גבוה לנמוך</option>
-          </select>
+        <div className="bg-white rounded-2xl border border-slate-100 p-3 mb-5 space-y-3">
+          <div className="flex flex-col sm:flex-row gap-3">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="חיפוש לפי שם / טלפון / אינסטגרם…"
+              className="flex-1 border border-slate-300 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-brand-500"
+            />
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value)}
+              className="border border-slate-300 rounded-xl px-4 py-2.5 bg-white outline-none focus:ring-2 focus:ring-brand-500"
+            >
+              <option value="created_desc">הכי חדשות</option>
+              <option value="name">לפי שם (א-ת)</option>
+              <option value="price_asc">מחיר: נמוך לגבוה</option>
+              <option value="price_desc">מחיר: גבוה לנמוך</option>
+            </select>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-slate-400 font-medium">סינון:</span>
+            <select
+              value={roleFilter}
+              onChange={(e) => setRoleFilter(e.target.value)}
+              className="border border-slate-300 rounded-lg px-3 py-2 bg-white outline-none focus:ring-2 focus:ring-brand-500"
+            >
+              <option value="">כל התפקידים</option>
+              {ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+            <select
+              value={genderFilter}
+              onChange={(e) => setGenderFilter(e.target.value)}
+              className="border border-slate-300 rounded-lg px-3 py-2 bg-white outline-none focus:ring-2 focus:ring-brand-500"
+            >
+              <option value="">כל המגדרים</option>
+              {GENDERS.map((g) => (
+                <option key={g} value={g}>
+                  {g}
+                </option>
+              ))}
+            </select>
+
+            <div className="flex items-center gap-1.5 border border-slate-300 rounded-lg px-3 py-1.5 bg-white">
+              <span className="text-slate-400">גיל</span>
+              <input
+                type="number"
+                value={ageMin}
+                onChange={(e) => setAgeMin(e.target.value)}
+                placeholder="מ-"
+                className="w-12 outline-none text-center"
+              />
+              <span className="text-slate-300">–</span>
+              <input
+                type="number"
+                value={ageMax}
+                onChange={(e) => setAgeMax(e.target.value)}
+                placeholder="עד"
+                className="w-12 outline-none text-center"
+              />
+            </div>
+
+            {(genderFilter || roleFilter || ageMin || ageMax || search) && (
+              <button
+                onClick={() => {
+                  setGenderFilter("");
+                  setRoleFilter("");
+                  setAgeMin("");
+                  setAgeMax("");
+                  setSearch("");
+                }}
+                className="text-brand-600 hover:underline font-medium px-2"
+              >
+                ניקוי סינון
+              </button>
+            )}
+            <span className="text-slate-400 mr-auto">{filtered.length} תוצאות</span>
+          </div>
         </div>
 
         {loading ? (
@@ -265,6 +356,41 @@ function Dashboard() {
                 className={inputCls}
                 placeholder="לדוגמה: נועה כהן"
               />
+            </Field>
+
+            <Field label="תפקיד">
+              <select
+                value={form.role}
+                onChange={(e) => setForm({ ...form, role: e.target.value })}
+                className={inputCls + " bg-white"}
+              >
+                <option value="">— בחר תפקיד —</option>
+                {ROLES.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="מגדר">
+              <div className="flex gap-2">
+                {GENDERS.map((g) => (
+                  <button
+                    key={g}
+                    type="button"
+                    onClick={() => setForm({ ...form, gender: form.gender === g ? "" : g })}
+                    className={
+                      "flex-1 rounded-xl py-2.5 font-medium border transition " +
+                      (form.gender === g
+                        ? "bg-brand-600 text-white border-brand-600"
+                        : "bg-white text-slate-600 border-slate-300 hover:border-brand-500")
+                    }
+                  >
+                    {g}
+                  </button>
+                ))}
+              </div>
             </Field>
 
             <div className="grid grid-cols-2 gap-3">
@@ -318,6 +444,37 @@ function Dashboard() {
               />
             </Field>
 
+            {editing && (
+              <div className="rounded-xl bg-slate-50 border border-slate-200 p-4 space-y-3">
+                <div>
+                  <h3 className="font-semibold text-slate-700">סיכום העבודה עם היוצרת</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    למעקב פנימי — כך שאת/ה או בעל מותג אחר תדעו בעתיד איך היה התוצר ואיך הייתה ההתנהלות.
+                  </p>
+                </div>
+
+                <Field label="תוצרים שסיפקה / הערות על היוצרת">
+                  <textarea
+                    value={form.notes}
+                    onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                    rows={4}
+                    className={inputCls + " resize-y"}
+                    placeholder="לדוגמה: סיפקה 3 רילז + סטורי. איכות תוצר גבוהה, עמדה בזמנים, תקשורת נעימה. שווה לעבוד שוב."
+                  />
+                </Field>
+
+                <div>
+                  <span className="text-sm font-medium text-slate-600 mb-1 block">
+                    דירוג כללי
+                  </span>
+                  <StarRating
+                    value={Number(form.rating) || 0}
+                    onChange={(v) => setForm({ ...form, rating: v })}
+                  />
+                </div>
+              </div>
+            )}
+
             {error && <p className="text-sm text-red-500">{error}</p>}
 
             <div className="flex gap-3 pt-2">
@@ -344,6 +501,30 @@ function Dashboard() {
 
 const inputCls =
   "w-full border border-slate-300 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-brand-500";
+
+function StarRating({ value, onChange, readOnly = false, size = "text-2xl" }) {
+  return (
+    <div className="flex gap-1" dir="ltr">
+      {[1, 2, 3, 4, 5].map((n) => (
+        <button
+          key={n}
+          type="button"
+          disabled={readOnly}
+          onClick={() => onChange && onChange(value === n ? 0 : n)}
+          className={
+            size +
+            " leading-none transition " +
+            (n <= value ? "text-amber-400" : "text-slate-300") +
+            (readOnly ? "" : " hover:scale-110 cursor-pointer")
+          }
+          aria-label={`${n} כוכבים`}
+        >
+          ★
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function Field({ label, children }) {
   return (
@@ -384,7 +565,18 @@ function CreatorCard({ c, onEdit, onDelete }) {
         </div>
         <div className="min-w-0">
           <h3 className="font-bold text-lg leading-tight truncate">{c.name}</h3>
-          {c.age != null && <p className="text-xs text-slate-400">גיל {c.age}</p>}
+          <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+            {c.role && (
+              <span className="text-[10px] font-medium bg-brand-50 text-brand-700 rounded px-1.5 py-0.5">
+                {c.role}
+              </span>
+            )}
+            {(c.gender || c.age != null) && (
+              <span className="text-xs text-slate-400">
+                {[c.gender, c.age != null ? `גיל ${c.age}` : null].filter(Boolean).join(" · ")}
+              </span>
+            )}
+          </div>
         </div>
         {c.price != null && (
           <div className="mr-auto text-left">
@@ -425,6 +617,19 @@ function CreatorCard({ c, onEdit, onDelete }) {
       </div>
 
       {c.phone && <p className="text-xs text-slate-400" dir="ltr">{c.phone}</p>}
+
+      {c.rating ? (
+        <div className="flex items-center gap-2">
+          <StarRating value={c.rating} readOnly size="text-base" />
+          <span className="text-xs text-slate-400">{c.rating}/5</span>
+        </div>
+      ) : null}
+
+      {c.notes ? (
+        <p className="text-xs text-slate-500 bg-slate-50 rounded-lg p-2 line-clamp-3 whitespace-pre-wrap">
+          {c.notes}
+        </p>
+      ) : null}
 
       <div className="flex gap-2 mt-auto pt-2 border-t border-slate-100">
         <button onClick={onEdit} className="flex-1 text-sm font-medium text-slate-600 hover:text-brand-700 py-1">
