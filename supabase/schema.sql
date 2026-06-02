@@ -8,6 +8,7 @@ create table if not exists public.creators (
   created_at  timestamptz not null default now(),
   name        text not null,
   role        text,   -- יוצר תוכן / שחקן / צלם / אולפן פודקאסט
+  language    text,   -- עברית / ערבית / עברית וערבית
   gender      text,   -- "אישה" / "גבר"
   phone       text,
   age         int,
@@ -19,8 +20,9 @@ create table if not exists public.creators (
 );
 
 -- עבור טבלאות קיימות — הוספת העמודות החדשות אם חסרות:
-alter table public.creators add column if not exists role   text;
-alter table public.creators add column if not exists gender text;
+alter table public.creators add column if not exists role     text;
+alter table public.creators add column if not exists language text;
+alter table public.creators add column if not exists gender   text;
 alter table public.creators add column if not exists notes  text;
 alter table public.creators add column if not exists rating int;
 

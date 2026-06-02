@@ -6,6 +6,7 @@ import { supabase, isConfigured } from "../lib/supabase";
 const EMPTY = {
   name: "",
   role: "",
+  language: "",
   gender: "",
   phone: "",
   age: "",
@@ -18,6 +19,7 @@ const EMPTY = {
 
 const GENDERS = ["אישה", "גבר"];
 const ROLES = ["יוצר תוכן", "שחקן", "צלם", "אולפן פודקאסט"];
+const LANGUAGES = ["עברית", "ערבית", "עברית וערבית"];
 
 export default function Home() {
   const [role, setRole] = useState(null); // "editor" | "viewer" | null
@@ -93,6 +95,7 @@ function Dashboard({ role }) {
   const [sort, setSort] = useState("created_desc");
   const [genderFilter, setGenderFilter] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
+  const [languageFilter, setLanguageFilter] = useState("");
   const [ageMin, setAgeMin] = useState("");
   const [ageMax, setAgeMax] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
@@ -134,6 +137,7 @@ function Dashboard({ role }) {
     setForm({
       name: c.name || "",
       role: c.role || "",
+      language: c.language || "",
       gender: c.gender || "",
       phone: c.phone || "",
       age: c.age ?? "",
@@ -163,6 +167,7 @@ function Dashboard({ role }) {
     const payload = {
       name: form.name.trim(),
       role: form.role || null,
+      language: form.language || null,
       gender: form.gender || null,
       phone: form.phone.trim() || null,
       age: form.age === "" ? null : Number(form.age),
@@ -211,16 +216,18 @@ function Dashboard({ role }) {
         (c.instagram || "").toLowerCase().includes(q);
       const matchesGender = !genderFilter || c.gender === genderFilter;
       const matchesRole = !roleFilter || c.role === roleFilter;
+      const matchesLanguage =
+        !languageFilter || (c.language || "").includes(languageFilter);
       const matchesAge =
         (min === null || (c.age != null && c.age >= min)) &&
         (max === null || (c.age != null && c.age <= max));
-      return matchesSearch && matchesGender && matchesRole && matchesAge;
+      return matchesSearch && matchesGender && matchesRole && matchesLanguage && matchesAge;
     });
     if (sort === "price_asc") list = [...list].sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity));
     if (sort === "price_desc") list = [...list].sort((a, b) => (b.price ?? -Infinity) - (a.price ?? -Infinity));
     if (sort === "name") list = [...list].sort((a, b) => (a.name || "").localeCompare(b.name || "", "he"));
     return list;
-  }, [creators, search, sort, genderFilter, roleFilter, ageMin, ageMax]);
+  }, [creators, search, sort, genderFilter, roleFilter, languageFilter, ageMin, ageMax]);
 
   return (
     <div className="min-h-screen">
@@ -308,6 +315,15 @@ function Dashboard({ role }) {
               ))}
             </select>
             <select
+              value={languageFilter}
+              onChange={(e) => setLanguageFilter(e.target.value)}
+              className="border border-slate-300 rounded-lg px-3 py-2 bg-white outline-none focus:ring-2 focus:ring-brand-500"
+            >
+              <option value="">כל השפות</option>
+              <option value="עברית">עברית</option>
+              <option value="ערבית">ערבית</option>
+            </select>
+            <select
               value={genderFilter}
               onChange={(e) => setGenderFilter(e.target.value)}
               className="border border-slate-300 rounded-lg px-3 py-2 bg-white outline-none focus:ring-2 focus:ring-brand-500"
@@ -339,11 +355,12 @@ function Dashboard({ role }) {
               />
             </div>
 
-            {(genderFilter || roleFilter || ageMin || ageMax || search) && (
+            {(genderFilter || roleFilter || languageFilter || ageMin || ageMax || search) && (
               <button
                 onClick={() => {
                   setGenderFilter("");
                   setRoleFilter("");
+                  setLanguageFilter("");
                   setAgeMin("");
                   setAgeMax("");
                   setSearch("");
@@ -401,6 +418,21 @@ function Dashboard({ role }) {
                 {ROLES.map((r) => (
                   <option key={r} value={r}>
                     {r}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="שפה">
+              <select
+                value={form.language}
+                onChange={(e) => setForm({ ...form, language: e.target.value })}
+                className={inputCls + " bg-white"}
+              >
+                <option value="">— בחר שפה —</option>
+                {LANGUAGES.map((l) => (
+                  <option key={l} value={l}>
+                    {l}
                   </option>
                 ))}
               </select>
@@ -612,6 +644,11 @@ function CreatorCard({ c, onEdit, canEdit }) {
             {c.role && (
               <span className="text-[10px] font-medium bg-brand-50 text-brand-700 rounded px-1.5 py-0.5">
                 {c.role}
+              </span>
+            )}
+            {c.language && (
+              <span className="text-[10px] font-medium bg-emerald-50 text-emerald-700 rounded px-1.5 py-0.5">
+                {c.language}
               </span>
             )}
             {(c.gender || c.age != null) && (
