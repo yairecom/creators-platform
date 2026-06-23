@@ -1,0 +1,45 @@
+name: Supabase Keepalive
+
+# Supabase free-tier pauses a project after ~7 days with no DB activity.
+# When paused, the live site shows 0 creators. This workflow pings the DB
+# every 2 days so it never reaches the pause threshold, and writes a tiny
+# timestamp commit so GitHub never disables the scheduled run (60-day rule).
+
+on:
+  schedule:
+    - cron: '17 5 */2 * *'   # every 2 days at 05:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: keepalive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ping Supabase to keep the database awake
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+            "${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}/rest/v1/creators?select=id&limit=1" \
+            -H "apikey: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}")
+          echo "Supabase REST responded HTTP $code"
+          if [ "$code" != "200" ]; then
+            echo "::error::Keepalive ping failed (HTTP $code) — project may be paused or keys changed."
+            exit 1
+          fi
+
+      - name: Record keepalive timestamp (keeps the schedule enabled)
+        run: |
+          git config user.name "keepalive-bot"
+          git config user.email "actions@github.com"
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .github/last-keepalive.txt
+          git add .github/last-keepalive.txt
+          git commit -m "chore: supabase keepalive ping [skip ci]" || { echo "nothing to commit"; exit 0; }
+          git push
