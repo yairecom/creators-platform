@@ -2,12 +2,13 @@ name: Supabase Keepalive
 
 # Supabase free-tier pauses a project after ~7 days with no DB activity.
 # When paused, the live site shows 0 creators. This workflow pings the DB
-# every 2 days so it never reaches the pause threshold, and writes a tiny
-# timestamp commit so GitHub never disables the scheduled run (60-day rule).
+# daily; if the project is already paused it restores it automatically via
+# the Management API. It always writes a timestamp commit so GitHub never
+# disables the scheduled run (60-day rule) — even when the ping fails.
 
 on:
   schedule:
-    - cron: '17 5 */2 * *'   # every 2 days at 05:17 UTC
+    - cron: '17 5 * * *'   # daily at 05:17 UTC
   workflow_dispatch:
 
 permissions:
@@ -17,25 +18,47 @@ concurrency:
   group: keepalive
   cancel-in-progress: false
 
+env:
+  PROJECT_REF: tlxuqxlqzcpelcfdtjax
+
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Ping Supabase to keep the database awake
+      - name: Ping Supabase (auto-restore if paused)
+        env:
+          SB_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SB_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SB_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
-          code=$(curl -s -o /dev/null -w "%{http_code}" \
-            "${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}/rest/v1/creators?select=id&limit=1" \
-            -H "apikey: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}" \
-            -H "Authorization: Bearer ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}")
-          echo "Supabase REST responded HTTP $code"
-          if [ "$code" != "200" ]; then
-            echo "::error::Keepalive ping failed (HTTP $code) — project may be paused or keys changed."
-            exit 1
+          ping() { curl -s -o /dev/null -w "%{http_code}" --max-time 30 \
+            "$SB_URL/rest/v1/creators?select=id&limit=1" \
+            -H "apikey: $SB_KEY" -H "Authorization: Bearer $SB_KEY" || true; }
+          proj_state() { curl -s -H "Authorization: Bearer $SB_TOKEN" \
+            "https://api.supabase.com/v1/projects/$PROJECT_REF" | grep -o '"status":"[^"]*"' | cut -d'"' -f4; }
+
+          code=$(ping); echo "Supabase REST responded HTTP $code"
+          [ "$code" = "200" ] && exit 0
+
+          state=$(proj_state); echo "Project status: $state"
+          if [ "$state" = "INACTIVE" ]; then
+            echo "::warning::Project was paused — restoring."
+            curl -s -X POST -H "Authorization: Bearer $SB_TOKEN" -H "Content-Type: application/json" \
+              "https://api.supabase.com/v1/projects/$PROJECT_REF/restore" -d '{}'
+            for i in $(seq 1 30); do
+              sleep 20; state=$(proj_state); echo "  $state"
+              [ "$state" = "ACTIVE_HEALTHY" ] && break
+            done
+            sleep 15; code=$(ping); echo "After restore: HTTP $code"
+            [ "$code" = "200" ] && exit 0
           fi
+          echo "::error::Keepalive failed (HTTP $code, status $state) — check keys/project."
+          exit 1
 
       - name: Record keepalive timestamp (keeps the schedule enabled)
+        if: always()
         run: |
           git config user.name "keepalive-bot"
           git config user.email "actions@github.com"
